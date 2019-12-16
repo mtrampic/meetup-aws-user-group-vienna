@@ -168,7 +168,7 @@ Now some short intro here for attached TF project:
 Requirement:
 - Docker installed
 - All accounts ID's and Roles preconfigured as per environments folder
-- DevOps account IAM User should be able to assume all roles on all accounts for Deployment
+- in ~/.aws cli config you need to have either DevOps account IAM User or IAM user credentials configured, and it should be able to assume all roles on all accounts for Deployment
 
 Folder structure:
 ```
