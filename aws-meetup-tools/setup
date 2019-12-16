@@ -1,0 +1,70 @@
+export PRO_HOME=$PWD
+echo $PRO_HOME
+
+if [ ! -d ${PRO_HOME}/environments ] ; then
+        echo "You must source this file from the repository root."
+else
+
+function tf_bi_run() {
+        docker run -i ${TF_BI_RUN_EXTRA} --rm\
+                --mount type=bind,source=${PWD},destination="/pro/src" \
+                --mount type=bind,source=$HOME/.aws,destination="/root/.aws" \
+                --mount type=bind,source=$PRO_HOME/environments,destination="/pro/envs" \
+                -P \
+                -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_PROFILE tftools:latest $*
+}
+
+function tf() {
+        local extras=""
+        local action="$1"
+        shift
+        templ_var_file="/pro/src/environments/${TF_ACTIVE_ENVIRONMENT}/$(basename ${PWD}).tfvars.json" #This is our template local variable file
+        case "${action}" in
+                "init")
+                        extras="-backend-config /pro/envs/provider.tfvars.json" #This is the provider variable file
+                        ;;
+                "apply"|"plan"|"destroy"|"import")
+                        if [ -z "${TF_ACTIVE_ENVIRONMENT}" ] ; then
+                                echo "Please setup TF_ACTIVE_ENVIRONMENT, and don't forget to change to the right terraform workspace"
+                                return 1
+                        fi
+                        extras="-var-file /pro/envs/${TF_ACTIVE_ENVIRONMENT}/${TF_ACTIVE_ENVIRONMENT}.tfvars.json -var-file ${templ_var_file}" #This adds our environment global variable file too
+                        ;;
+                "environment"|"env") #This just changes the environment
+                        if [ -z "$1" ] ; then
+                                echo "Please define environment, as the 2nd parameter"
+                                return 2
+                        fi
+                        if [ ! -d ${PRO_HOME}/environments/$1 ] ; then
+                                echo "I can't find that environment definition. Typo?"
+                                echo "Environment name provided: \"$1\""
+                                return 3
+                        fi
+                        if [ ! -d ./.terraform ] ; then
+                                echo "I can't find .terraform directory, are you in the right directory? If so, you have to run 'tf init' first."
+                                return 4
+                        fi
+                        echo "Environment changed to: $1"
+                        export TF_ACTIVE_ENVIRONMENT="$1"
+                        tf workspace select ${TF_ACTIVE_ENVIRONMENT} || tf workspace new ${TF_ACTIVE_ENVIRONMENT}
+                        return 0
+                        ;;
+                *)
+                        ;;
+        esac
+        tf_bi_run terraform ${action} ${extras} $* #And at the end we call terraform in the container, each execution is a new container, than thrown away.
+}
+
+function tf_bi_build()
+{
+        pushd .
+        cd ${PRO_HOME}/tools/docker
+        docker build . -t tftools:latest
+        popd
+}
+
+
+alias terraform='tf'
+alias aws="tf_bi_run aws"
+
+fi
