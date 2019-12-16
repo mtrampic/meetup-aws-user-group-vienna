@@ -67,29 +67,91 @@ Resources:
               - "sts:AssumeRole"
 ```
 
-If you are repetetive, you can always put jinja in front and make some magic... eg...
+If you are repetetive, you can always put some jinja ( https://jinja.palletsprojects.com/en/2.10.x/ ) in front and make some magic... eg, template that build's a lot of VPC endpoints in Private zones...
+
 ```yaml
-
+{%- macro sentence_case(text) %}{{text.split('.')|map('capitalize')|join('') }}{% endmacro %}
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: {{VpcId}}
+Resources:
+  SGInterfaceVPCEndpoints:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: SG Attached to VPC Endpoint Interfaces to allow ingress traffic for VPC Resources.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: {{VpcCidr}}
+  {%- set GatewayVPCEndpoints = ['s3', 'dynamodb'] %}
+  {%- for endpoint in GatewayVPCEndpoints %}
+  Endpoint{{sentence_case(endpoint)}}:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      {%- set comma = joiner(",") %}
+      RouteTableIds: [ {% for item in Subnets %}{{item['RouteTableId']}}{%if not loop.last %}, {% endif %}{% endfor %} ]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.{{endpoint}}'
+      VpcId: !Ref VpcId
+  {%- endfor %}
+  {%- set InterfaceVPCEndpoints = ['logs', 'ecr.dkr', 'kms', 'glue', 'ec2', 'ecr.api'] %}
+  {%- for endpoint in InterfaceVPCEndpoints %}
+  Endpoint{{sentence_case(endpoint)}}:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: True
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.{{endpoint}}'
+      VpcId: !Ref VpcId
+      SubnetIds: [ {%- for item in Subnets %}{% if 'Private' in item['ZoneName'] %} {{ item['SubnetId'] }}{%if not loop.last %}, {% endif %}{% endif %}{% endfor %} ]
+  {%- endfor %}
+Outputs:
+  TemplateID:
+    Value: 'vpc/rbi-dl-vpc-endpoints'
+  StackName:
+    Description: 'Stack name.'
+    Value: !Sub '${AWS::StackName}'
+  {%- for endpoint in GatewayVPCEndpoints %}
+  Endpoint{{sentence_case(endpoint)}}:
+    Description: 'The VPC endpoint to {{sentence_case(endpoint)}}.'
+    Value: !Ref Endpoint{{sentence_case(endpoint)}}
+    Export:
+      Name: !Sub '${AWS::StackName}-Endpoint{{sentence_case(endpoint)}}'
+  {%- endfor %}
+  {%- for endpoint in InterfaceVPCEndpoints %}
+  Endpoint{{sentence_case(endpoint)}}:
+    Description: 'The VPC endpoint to {{sentence_case(endpoint)}}.'
+    Value: !Ref Endpoint{{sentence_case(endpoint)}}
+    Export:
+      Name: !Sub '${AWS::StackName}-Endpoint{{sentence_case(endpoint)}}'
+  {%- endfor %}
 ```
+This is an example input file for before mentioned jinja template:
+```json
+{
+	"Name": "ACCOUNT_ALIAS",
+	"Id": "***ACC_ID***",
+	"VpcId": "vpc-*****************",
+	"VpcCidr": "172.31.0.0/16",
+	"Subnets": [
+		{
+			"ZoneName": "Private",
+			"SubnetId": "subnet-*****************",
+			"RouteTableId": "rtb-*****************",
+			"CidrBlock": "172.31.17.0/24"
+		},
+		{
+			"ZoneName": "Public",
+			"SubnetId": "subnet-*****************",
+			"RouteTableId": "rtb-*****************",
+			"CidrBlock": "172.31.18.0/20/24"
+		}
+	]
+}
 ```
-project
-│   README.md
-│   file001.txt    
-│
-└───folder1
-│   │   file011.txt
-│   │   file012.txt
-│   │
-│   └───subfolder1
-│       │   file111.txt
-│       │   file112.txt
-│       │   ...
-│   
-└───folder2
-    │   file021.txt
-    │   file022.txt 
-```
-
 ## Terraform
 Terraform Hashi Conf. Language ( HCL)
 
@@ -100,3 +162,94 @@ Terraform Hashi Conf. Language ( HCL)
 
 # How do We @ RBI do Terraform & DevOps?
 ![Diagram](content/general_architecture.png)
+
+Now some short intro here for attached TF project:
+
+Requirement:
+- Docker installed
+- All accounts ID's and Roles preconfigured as per environments folder
+- DevOps account IAM User should be able to assume all roles on all accounts for Deployment
+
+Folder structure:
+```
+.
+├── README.md
+├── aws-meetup-tools # docker image used for TF for consistency
+│   ├── README.md
+│   ├── docker
+│   │   └── Dockerfile
+│   └── setup
+├── content
+│   └── *.png
+├── environments
+│   ├── aws-meetup-dev
+│   │   └── aws-meetup-dev.tfvars.json # env name eg... account_alias
+│   ├── aws-meetup-devops
+│   │   └── aws-meetup-devops.tfvars.json # Central Deployment Account
+│   ├── aws-meetup-prod
+│   │   └── aws-meetup-prod.tfvars.json
+│   ├── aws-meetup-test
+│   │   └── aws-meetup-test.tfvars.json
+│   └── provider.tfvars.json
+└── templates
+    ├── aws-meetup-tf-ec2
+    │   ├── demo_instance.tf
+    │   ├── environments
+    │   │   ├── aws-meetup-dev
+    │   │   │   └── aws-meetup-tf-ec2.tfvars.json
+    │   │   ├── aws-meetup-devops
+    │   │   │   └── aws-meetup-tf-ec2.tfvars.json
+    │   │   ├── aws-meetup-prod
+    │   │   │   └── aws-meetup-tf-ec2.tfvars.json
+    │   │   └── aws-meetup-test
+    │   │       └── aws-meetup-tf-ec2.tfvars.json
+    │   └── variable.tf
+    └── aws-meetup-tf-state # State File Deployment
+        ├── environments
+        │   └── aws-meetup-devops
+        │       └── aws-meetup-tf-state.tfvars.json
+        ├── state.tf #main state file TF template
+        ├── variables.tf
+        └── versions.tf
+```
+
+Get Started
+```bash
+git clone https://github.com/Mladen-Trampic-SRB-1989/meetup-aws-user-group-vienna.git
+
+cd meetup-aws-user-group-vienna
+
+source aws-meetup-tools/setup
+
+#build docker image
+tf_bi_build
+
+#verify image exists
+docker images -f "reference=tftools"
+
+#if image is there, you are good to go
+cd templates/aws-meetup-tf-state/
+
+#note also that presence of ~/.aws/credentials / ~/.aws/config file is needed, where default profile is used to assume roles based on selected environment
+
+#init
+tf init
+
+#switch to devops environment
+tf env aws-meetup-devops
+
+#plan
+tf plan
+
+#if all good apply ( local backend )
+tf apply -auto-approve
+
+#deploy ec2 in dev environment ( now it is s3 backend with DDB locking )
+cd ../aws-meetup-tf-ec2
+tf init
+tf env aws-meetup-dev
+tf plan
+tf apply -auto-approve
+
+```
+

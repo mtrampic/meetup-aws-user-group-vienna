@@ -20,6 +20,6 @@ RUN pip3 install awscli \
     && curl https://releases.hashicorp.com/terraform/0.12.8/terraform_0.12.8_linux_amd64.zip --output /opt/terraform.zip \
     && cd /opt \
     && unzip terraform.zip \
-    && rm /opt/terraform.zip \
+    && rm /opt/terraform.zip 
 
 WORKDIR /pro/src

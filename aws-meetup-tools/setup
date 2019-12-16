@@ -58,7 +58,7 @@ function tf() {
 function tf_bi_build()
 {
         pushd .
-        cd ${PRO_HOME}/tools/docker
+        cd ${PRO_HOME}/aws-meetup-tools/docker
         docker build . -t tftools:latest
         popd
 }
